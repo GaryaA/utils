@@ -1,22 +1,24 @@
 package ru.cubesolutions.evam.utils;
 
 import org.apache.http.HttpHost;
+import org.apache.http.HttpResponse;
 import org.apache.http.auth.AuthScope;
 import org.apache.http.auth.UsernamePasswordCredentials;
 import org.apache.http.client.CredentialsProvider;
-import org.apache.http.client.config.RequestConfig;
-import org.apache.http.client.methods.CloseableHttpResponse;
+import org.apache.http.client.HttpClient;
 import org.apache.http.client.methods.HttpGet;
 import org.apache.http.client.methods.HttpPost;
 import org.apache.http.client.methods.HttpRequestBase;
+import org.apache.http.conn.params.ConnRoutePNames;
 import org.apache.http.entity.StringEntity;
 import org.apache.http.impl.client.BasicCredentialsProvider;
-import org.apache.http.impl.client.CloseableHttpClient;
-import org.apache.http.impl.client.HttpClients;
+import org.apache.http.impl.client.DefaultHttpClient;
 import org.apache.log4j.Logger;
-import org.apache.log4j.PropertyConfigurator;
 
-import java.io.*;
+import java.io.BufferedReader;
+import java.io.IOException;
+import java.io.InputStream;
+import java.io.InputStreamReader;
 
 import static ru.cubesolutions.evam.utils.CommonUtils.isNotNull;
 
@@ -35,18 +37,17 @@ public class ResourcesApi {
     }
 
     public static String sendPost(String url, String data, String contentType, ProxyObj proxyObj) {
-        try (CloseableHttpClient client = initClient(proxyObj)) {
+        HttpClient client = initClient(proxyObj);
+        try {
             HttpPost method = new HttpPost(url);
             method.setHeader("Content-type", contentType);
             method.setEntity(new StringEntity(data, "UTF-8"));
-            RequestConfig rc = initRequestConfig(proxyObj);
-            if (isNotNull(rc)) {
-                method.setConfig(rc);
-            }
             return getResponseString(client, method);
         } catch (Exception e) {
             log.error(e);
             throw new RuntimeException(e);
+        } finally {
+            client.getConnectionManager().shutdown();
         }
     }
 
@@ -55,16 +56,15 @@ public class ResourcesApi {
     }
 
     public static String sendGet(String url, ProxyObj proxyObj) {
-        try (CloseableHttpClient client = initClient(proxyObj)) {
+        HttpClient client = initClient(proxyObj);
+        try {
             HttpGet method = new HttpGet(url);
-            RequestConfig rc = initRequestConfig(proxyObj);
-            if (isNotNull(rc)) {
-                method.setConfig(rc);
-            }
             return getResponseString(client, method);
         } catch (Exception e) {
             log.error(e);
             throw new RuntimeException(e);
+        } finally {
+            client.getConnectionManager().shutdown();
         }
     }
 
@@ -74,9 +74,10 @@ public class ResourcesApi {
         }
     }
 
-    private static String getResponseString(CloseableHttpClient client, HttpRequestBase method) throws IOException {
+    private static String getResponseString(HttpClient client, HttpRequestBase method) throws IOException {
         log.debug("Executing request " + method.getRequestLine() + " to " + method.getURI().toString());
-        try (CloseableHttpResponse response = client.execute(method)) {
+        HttpResponse response = client.execute(method);
+        try {
             int responseCode = response.getStatusLine().getStatusCode();
             if (responseCode != 200) {
                 log.error("Error sending request with url: " + method.getURI().toString());
@@ -85,6 +86,9 @@ public class ResourcesApi {
                 throw new RuntimeException(responseCode + " code, Error sending request with url: " + method.getURI().toString());
             }
             return getResponseString(response.getEntity().getContent());
+        } catch (Exception e) {
+            log.error(e);
+            throw new RuntimeException(e);
         }
     }
 
@@ -101,20 +105,18 @@ public class ResourcesApi {
         }
     }
 
-    private static CloseableHttpClient initClient(ProxyObj proxyObj) {
+    private static HttpClient initClient(ProxyObj proxyObj) {
+        DefaultHttpClient httpClient = new DefaultHttpClient();
         if (isNotNull(proxyObj)) {
             CredentialsProvider credsProvider = new BasicCredentialsProvider();
             credsProvider.setCredentials(
                     new AuthScope(proxyObj.getHost(), proxyObj.getPort()),
                     new UsernamePasswordCredentials(proxyObj.getUser(), proxyObj.getPassword()));
-            return HttpClients.custom().setDefaultCredentialsProvider(credsProvider).build();
+            httpClient.setCredentialsProvider(credsProvider);
+            HttpHost proxy = new HttpHost(proxyObj.getHost(), proxyObj.getPort(), (proxyObj.getHost().indexOf("https") != 0) ? "http" : "https");
+            httpClient.getParams().setParameter(ConnRoutePNames.DEFAULT_PROXY, proxy);
         }
-        return HttpClients.custom().build();
+        return httpClient;
     }
 
-    private static RequestConfig initRequestConfig(ProxyObj proxyObj) {
-        return isNotNull(proxyObj)
-                ? RequestConfig.custom().setProxy(new HttpHost(proxyObj.getHost(), proxyObj.getPort())).build()
-                : null;
-    }
 }
