@@ -30,6 +30,12 @@ public class ResourcesApi {
     private ResourcesApi() {
     }
 
+    public static void main(String[] args) {
+        String url = "https://api.sendsay.ru/";
+
+        sendGet(url);
+    }
+
     public static String sendPost(String url, String data, String contentType) {
         return sendPost(url, data, contentType, null);
     }
